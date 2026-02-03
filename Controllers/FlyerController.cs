@@ -12,11 +12,57 @@ public class FlyerController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly IWebHostEnvironment _environment;
+    private readonly ILogger<FlyerController> _logger;
 
-    public FlyerController(AppDbContext context, IWebHostEnvironment environment)
+    public FlyerController(AppDbContext context, IWebHostEnvironment environment, ILogger<FlyerController> logger)
     {
         _context = context;
         _environment = environment;
+        _logger = logger;
+    }
+
+    private string? BuildPublicImageUrl(string? imagePath)
+    {
+        if (string.IsNullOrWhiteSpace(imagePath)) return null;
+
+        // If DB already has an absolute URL (future-proof for Blob/CDN), just return it.
+        if (Uri.TryCreate(imagePath, UriKind.Absolute, out _)) return imagePath;
+
+        if (!imagePath.StartsWith("/")) imagePath = "/" + imagePath;
+        return $"{Request.Scheme}://{Request.Host}{imagePath}";
+    }
+
+    private string ResolveWebRootPath()
+    {
+        // Azure can sometimes have WebRootPath null depending on hosting model.
+        return !string.IsNullOrEmpty(_environment.WebRootPath)
+            ? _environment.WebRootPath
+            : Path.Combine(_environment.ContentRootPath, "wwwroot");
+    }
+
+    // Diagnostic endpoint to check file storage location
+    [HttpGet("diagnostics/storage-path")]
+    public IActionResult GetStoragePath()
+    {
+        var webRootPath = _environment.WebRootPath ?? "NULL (WebRootPath is null!)";
+        var contentRootPath = _environment.ContentRootPath;
+        var uploadsPath = !string.IsNullOrEmpty(_environment.WebRootPath) 
+            ? Path.Combine(_environment.WebRootPath, "uploads") 
+            : "Cannot determine (WebRootPath is null)";
+        
+        var diagnostics = new
+        {
+            WebRootPath = webRootPath,
+            ContentRootPath = contentRootPath,
+            UploadsPath = uploadsPath,
+            UploadsPathExists = !string.IsNullOrEmpty(_environment.WebRootPath) && Directory.Exists(uploadsPath),
+            EnvironmentName = _environment.EnvironmentName
+        };
+
+        _logger.LogWarning("Storage Diagnostics: WebRootPath={WebRootPath}, UploadsPath={UploadsPath}, Exists={Exists}", 
+            webRootPath, uploadsPath, diagnostics.UploadsPathExists);
+
+        return Ok(diagnostics);
     }
 
     // Upload flyer
@@ -36,21 +82,52 @@ public class FlyerController : ControllerBase
             return BadRequest(new { message = "Only PNG and JPG files are allowed" });
         }
 
-        // Create uploads directory if it doesn't exist
-        var uploadsPath = Path.Combine(_environment.WebRootPath, "uploads");
+        // Determine upload path (handle null WebRootPath in Azure)
+        string uploadsPath;
+        string filePath;
+        string uniqueFileName = $"{Guid.NewGuid()}{fileExtension}";
+        bool usingFallback = false;
+
+        if (string.IsNullOrEmpty(_environment.WebRootPath))
+        {
+            _logger.LogError("WebRootPath is null! Using ContentRootPath as fallback.");
+            // Fallback to ContentRootPath/wwwroot/uploads
+            var fallbackPath = Path.Combine(_environment.ContentRootPath, "wwwroot");
+            if (!Directory.Exists(fallbackPath))
+            {
+                Directory.CreateDirectory(fallbackPath);
+            }
+            uploadsPath = Path.Combine(fallbackPath, "uploads");
+            usingFallback = true;
+        }
+        else
+        {
+            uploadsPath = Path.Combine(_environment.WebRootPath, "uploads");
+        }
+
         if (!Directory.Exists(uploadsPath))
         {
             Directory.CreateDirectory(uploadsPath);
+            _logger.LogInformation("Created uploads directory: {Path}", uploadsPath);
         }
 
-        // Generate unique filename
-        var uniqueFileName = $"{Guid.NewGuid()}{fileExtension}";
-        var filePath = Path.Combine(uploadsPath, uniqueFileName);
+        filePath = Path.Combine(uploadsPath, uniqueFileName);
+
+        _logger.LogInformation("Saving file to: {FilePath} (Fallback: {UsingFallback})", filePath, usingFallback);
 
         // Save file
-        using (var stream = new FileStream(filePath, FileMode.Create))
+        try
         {
-            await request.File.CopyToAsync(stream);
+            using (var stream = new FileStream(filePath, FileMode.Create))
+            {
+                await request.File.CopyToAsync(stream);
+            }
+            _logger.LogInformation("File saved successfully: {FilePath}", filePath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving file to {FilePath}", filePath);
+            return StatusCode(500, new { message = "Error saving file", error = ex.Message, path = filePath });
         }
 
         // Save flyer metadata to database
@@ -66,7 +143,25 @@ public class FlyerController : ControllerBase
         _context.Flyers.Add(flyer);
         await _context.SaveChangesAsync();
 
-        return Ok(new { message = "Flyer uploaded successfully", flyer });
+        var response = new { 
+            message = usingFallback 
+                ? "Flyer uploaded successfully (using fallback path)" 
+                : "Flyer uploaded successfully", 
+            flyer,
+            savedPath = filePath
+        };
+
+        if (usingFallback)
+        {
+            return Ok(new { 
+                message = response.message,
+                flyer = response.flyer,
+                savedPath = response.savedPath,
+                warning = "WebRootPath was null - file saved to ContentRootPath/wwwroot/uploads"
+            });
+        }
+
+        return Ok(response);
     }
 
     // Get flyers for a specific company with optional month filter
@@ -88,6 +183,7 @@ public class FlyerController : ControllerBase
                 f.Id,
                 f.Title,
                 f.ImagePath,
+                ImageUrl = BuildPublicImageUrl(f.ImagePath),
                 f.CompanyId,
                 f.ForDate,
                 f.CreatedAt
@@ -123,6 +219,7 @@ public class FlyerController : ControllerBase
                 f.Id,
                 f.Title,
                 f.ImagePath,
+                ImageUrl = BuildPublicImageUrl(f.ImagePath),
                 f.CompanyId,
                 CompanyName = f.Company!.Name,
                 f.ForDate,
@@ -157,15 +254,19 @@ public class FlyerController : ControllerBase
                 return BadRequest(new { message = "Only PNG and JPG files are allowed" });
             }
 
-            // Delete old file
-            var oldFilePath = Path.Combine(_environment.WebRootPath, flyer.ImagePath.TrimStart('/'));
-            if (System.IO.File.Exists(oldFilePath))
+            // Delete old file (only if it was a local relative path)
+            if (!string.IsNullOrWhiteSpace(flyer.ImagePath) && !Uri.TryCreate(flyer.ImagePath, UriKind.Absolute, out _))
             {
-                System.IO.File.Delete(oldFilePath);
+                var oldFilePath = Path.Combine(ResolveWebRootPath(), flyer.ImagePath.TrimStart('/'));
+                if (System.IO.File.Exists(oldFilePath))
+                {
+                    System.IO.File.Delete(oldFilePath);
+                }
             }
 
             // Save new file
-            var uploadsPath = Path.Combine(_environment.WebRootPath, "uploads");
+            var uploadsPath = Path.Combine(ResolveWebRootPath(), "uploads");
+            if (!Directory.Exists(uploadsPath)) Directory.CreateDirectory(uploadsPath);
             var uniqueFileName = $"{Guid.NewGuid()}{fileExtension}";
             var newFilePath = Path.Combine(uploadsPath, uniqueFileName);
 
@@ -192,7 +293,18 @@ public class FlyerController : ControllerBase
             return NotFound(new { message = "Flyer not found" });
         }
 
-        var filePath = Path.Combine(_environment.WebRootPath, flyer.ImagePath.TrimStart('/'));
+        if (string.IsNullOrWhiteSpace(flyer.ImagePath))
+        {
+            return NotFound(new { message = "File not found" });
+        }
+
+        // If the DB has an absolute URL (e.g., Blob), don't try to download from local disk.
+        if (Uri.TryCreate(flyer.ImagePath, UriKind.Absolute, out _))
+        {
+            return BadRequest(new { message = "This flyer image is stored remotely; download via the ImageUrl instead." });
+        }
+
+        var filePath = Path.Combine(ResolveWebRootPath(), flyer.ImagePath.TrimStart('/'));
         if (!System.IO.File.Exists(filePath))
         {
             return NotFound(new { message = "File not found" });

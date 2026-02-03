@@ -15,7 +15,7 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.PropertyNamingPolicy = null; // Use property names as-is
     });
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddOpenApi();
+builder.Services.AddSwaggerGen();
 
 // Configure SQL Server database
 builder.Services.AddDbContext<AppDbContext>(options =>
@@ -46,10 +46,9 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Configure the HTTP request pipeline
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
+    app.UseSwagger();
+    app.UseSwaggerUI();
+
 
 // Enable CORS first
 app.UseCors("AllowReactApp");
