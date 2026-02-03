@@ -176,6 +176,7 @@ public class FlyerController : ControllerBase
             query = query.Where(f => f.ForDate.Year == year.Value && f.ForDate.Month == month.Value);
         }
 
+        // IMPORTANT: keep EF query SQL-translatable; build ImageUrl after materialization.
         var flyers = await query
             .OrderByDescending(f => f.ForDate)
             .Select(f => new
@@ -183,14 +184,24 @@ public class FlyerController : ControllerBase
                 f.Id,
                 f.Title,
                 f.ImagePath,
-                ImageUrl = BuildPublicImageUrl(f.ImagePath),
                 f.CompanyId,
                 f.ForDate,
                 f.CreatedAt
             })
             .ToListAsync();
 
-        return Ok(flyers);
+        var response = flyers.Select(f => new
+        {
+            f.Id,
+            f.Title,
+            f.ImagePath,
+            ImageUrl = BuildPublicImageUrl(f.ImagePath),
+            f.CompanyId,
+            f.ForDate,
+            f.CreatedAt
+        });
+
+        return Ok(response);
     }
 
     // Get all flyers with optional company and month filters (for admin)
@@ -211,6 +222,7 @@ public class FlyerController : ControllerBase
             query = query.Where(f => f.ForDate.Year == year.Value && f.ForDate.Month == month.Value);
         }
 
+        // IMPORTANT: keep EF query SQL-translatable; build ImageUrl after materialization.
         var flyers = await query
             .Include(f => f.Company)
             .OrderByDescending(f => f.ForDate)
@@ -219,7 +231,6 @@ public class FlyerController : ControllerBase
                 f.Id,
                 f.Title,
                 f.ImagePath,
-                ImageUrl = BuildPublicImageUrl(f.ImagePath),
                 f.CompanyId,
                 CompanyName = f.Company!.Name,
                 f.ForDate,
@@ -227,7 +238,19 @@ public class FlyerController : ControllerBase
             })
             .ToListAsync();
 
-        return Ok(flyers);
+        var response = flyers.Select(f => new
+        {
+            f.Id,
+            f.Title,
+            f.ImagePath,
+            ImageUrl = BuildPublicImageUrl(f.ImagePath),
+            f.CompanyId,
+            f.CompanyName,
+            f.ForDate,
+            f.CreatedAt
+        });
+
+        return Ok(response);
     }
 
     // Update flyer (title, forDate, and optionally image)
