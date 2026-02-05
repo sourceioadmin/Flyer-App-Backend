@@ -1,11 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using backend.Data;
+using backend.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configure to listen on all network interfaces
-//builder.WebHost.UseUrls("http://0.0.0.0:5000");
+// Configure to listen on all network interfaces with HTTPS
+builder.WebHost.UseUrls("https://0.0.0.0:5001");
 
 // Add services to the container
 builder.Services.AddControllers()
@@ -21,16 +22,18 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// Configure CORS for React frontend (allow local network access)
+// Register BlobService for Azure Blob Storage uploads
+builder.Services.AddSingleton<BlobService>();
+
+// Configure CORS for React frontend (allow any origin for development)
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp",
         policy =>
         {
-            policy.SetIsOriginAllowed(origin => true) // Allow any origin in development
+            policy.AllowAnyOrigin()
                   .AllowAnyMethod()
                   .AllowAnyHeader()
-                  .AllowCredentials()
                   .WithExposedHeaders("Content-Disposition");
         });
 });
@@ -43,6 +46,26 @@ using (var scope = app.Services.CreateScope())
     var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     context.Database.EnsureCreated();
     DbSeeder.Seed(context);
+}
+
+// Configure Azure Blob Storage CORS (one-time setup)
+try
+{
+    using var scope = app.Services.CreateScope();
+    var blobService = scope.ServiceProvider.GetRequiredService<BlobService>();
+    var allowedOrigins = new[] 
+    { 
+        "https://flyerbox.sourceiotech.com",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "*" // Allow all origins - remove this in production for better security
+    };
+    await blobService.ConfigureCorsAsync(allowedOrigins);
+    app.Logger.LogInformation("Azure Blob Storage CORS configured successfully");
+}
+catch (Exception ex)
+{
+    app.Logger.LogWarning(ex, "Failed to configure Azure Blob Storage CORS. You may need to configure it manually via Azure Portal.");
 }
 
 // Configure the HTTP request pipeline

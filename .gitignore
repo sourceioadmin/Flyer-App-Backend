@@ -88,3 +88,10 @@ wwwroot/files/*
 
 # Windows
 Thumbs.db
+
+# Configuration files with secrets
+appsettings.Development.json
+appsettings.Production.json
+appsettings.*.json
+!appsettings.json
+!appsettings.TEMPLATE.json
