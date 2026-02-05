@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using backend.Data;
 using backend.Models;
 using backend.DTOs;
+using backend.Services;
 
 namespace backend.Controllers;
 
@@ -13,23 +14,33 @@ public class FlyerController : ControllerBase
     private readonly AppDbContext _context;
     private readonly IWebHostEnvironment _environment;
     private readonly ILogger<FlyerController> _logger;
+    private readonly BlobService _blobService;
 
-    public FlyerController(AppDbContext context, IWebHostEnvironment environment, ILogger<FlyerController> logger)
+    public FlyerController(AppDbContext context, IWebHostEnvironment environment, ILogger<FlyerController> logger, BlobService blobService)
     {
         _context = context;
         _environment = environment;
         _logger = logger;
+        _blobService = blobService;
     }
 
     private string? BuildPublicImageUrl(string? imagePath)
     {
         if (string.IsNullOrWhiteSpace(imagePath)) return null;
 
-        // If DB already has an absolute URL (future-proof for Blob/CDN), just return it.
+        // Legacy/absolute URL case – just return as-is.
         if (Uri.TryCreate(imagePath, UriKind.Absolute, out _)) return imagePath;
 
-        if (!imagePath.StartsWith("/")) imagePath = "/" + imagePath;
-        return $"{Request.Scheme}://{Request.Host}{imagePath}";
+        // New behavior: treat non-absolute ImagePath as a blob name and return a read-only SAS URL.
+        try
+        {
+            return _blobService.GetReadSasUrl(imagePath, TimeSpan.FromMinutes(30));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to generate SAS URL for imagePath '{ImagePath}'", imagePath);
+            return null;
+        }
     }
 
     private string ResolveWebRootPath()
@@ -65,7 +76,7 @@ public class FlyerController : ControllerBase
         return Ok(diagnostics);
     }
 
-    // Upload flyer
+    // Upload flyer to Azure Blob Storage, store blob name in DB, and return SAS URL
     [HttpPost("upload")]
     public async Task<IActionResult> UploadFlyer([FromForm] FlyerUploadRequest request)
     {
@@ -82,60 +93,28 @@ public class FlyerController : ControllerBase
             return BadRequest(new { message = "Only PNG and JPG files are allowed" });
         }
 
-        // Determine upload path (handle null WebRootPath in Azure)
-        string uploadsPath;
-        string filePath;
-        string uniqueFileName = $"{Guid.NewGuid()}{fileExtension}";
-        bool usingFallback = false;
-
-        if (string.IsNullOrEmpty(_environment.WebRootPath))
-        {
-            _logger.LogError("WebRootPath is null! Using ContentRootPath as fallback.");
-            // Fallback to ContentRootPath/wwwroot/uploads
-            var fallbackPath = Path.Combine(_environment.ContentRootPath, "wwwroot");
-            if (!Directory.Exists(fallbackPath))
-            {
-                Directory.CreateDirectory(fallbackPath);
-            }
-            uploadsPath = Path.Combine(fallbackPath, "uploads");
-            usingFallback = true;
-        }
-        else
-        {
-            uploadsPath = Path.Combine(_environment.WebRootPath, "uploads");
-        }
-
-        if (!Directory.Exists(uploadsPath))
-        {
-            Directory.CreateDirectory(uploadsPath);
-            _logger.LogInformation("Created uploads directory: {Path}", uploadsPath);
-        }
-
-        filePath = Path.Combine(uploadsPath, uniqueFileName);
-
-        _logger.LogInformation("Saving file to: {FilePath} (Fallback: {UsingFallback})", filePath, usingFallback);
-
-        // Save file
+        string blobName;
+        string flyerUrl;
         try
         {
-            using (var stream = new FileStream(filePath, FileMode.Create))
-            {
-                await request.File.CopyToAsync(stream);
-            }
-            _logger.LogInformation("File saved successfully: {FilePath}", filePath);
+            // Upload and get the blob name to store in DB
+            blobName = await _blobService.UploadAsync(request.File);
+
+            // Generate a short-lived read-only SAS URL for the client
+            flyerUrl = _blobService.GetReadSasUrl(blobName, TimeSpan.FromHours(1));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error saving file to {FilePath}", filePath);
-            return StatusCode(500, new { message = "Error saving file", error = ex.Message, path = filePath });
+            _logger.LogError(ex, "Error uploading file to Azure Blob Storage");
+            return StatusCode(500, new { message = "Error uploading file to storage", error = ex.Message });
         }
 
-        // Save flyer metadata to database
+        // Save flyer metadata to database; ImagePath now stores the blob name
         var flyer = new Flyer
         {
             Title = request.Title,
             ForDate = request.ForDate,
-            ImagePath = $"/uploads/{uniqueFileName}",
+            ImagePath = blobName,
             CompanyId = request.CompanyId,
             CreatedAt = DateTime.UtcNow
         };
@@ -143,25 +122,12 @@ public class FlyerController : ControllerBase
         _context.Flyers.Add(flyer);
         await _context.SaveChangesAsync();
 
-        var response = new { 
-            message = usingFallback 
-                ? "Flyer uploaded successfully (using fallback path)" 
-                : "Flyer uploaded successfully", 
-            flyer,
-            savedPath = filePath
-        };
-
-        if (usingFallback)
+        return Ok(new
         {
-            return Ok(new { 
-                message = response.message,
-                flyer = response.flyer,
-                savedPath = response.savedPath,
-                warning = "WebRootPath was null - file saved to ContentRootPath/wwwroot/uploads"
-            });
-        }
-
-        return Ok(response);
+            message = "Flyer uploaded successfully",
+            flyerUrl,
+            flyer
+        });
     }
 
     // Get flyers for a specific company with optional month filter
@@ -306,7 +272,7 @@ public class FlyerController : ControllerBase
         return Ok(new { message = "Flyer updated successfully", flyer });
     }
 
-    // Download flyer
+    // Download flyer (supports both local files and Azure Blob Storage)
     [HttpGet("download/{id}")]
     public async Task<IActionResult> DownloadFlyer(int id)
     {
@@ -321,21 +287,50 @@ public class FlyerController : ControllerBase
             return NotFound(new { message = "File not found" });
         }
 
-        // If the DB has an absolute URL (e.g., Blob), don't try to download from local disk.
-        if (Uri.TryCreate(flyer.ImagePath, UriKind.Absolute, out _))
+        try
         {
-            return BadRequest(new { message = "This flyer image is stored remotely; download via the ImageUrl instead." });
-        }
+            // Check if ImagePath is an absolute URL (legacy Azure Blob Storage URL)
+            if (Uri.TryCreate(flyer.ImagePath, UriKind.Absolute, out _))
+            {
+                // Legacy case: ImagePath contains full URL - redirect to it
+                // (This won't help with CORS, but maintains backward compatibility)
+                _logger.LogWarning("Flyer {FlyerId} uses legacy absolute URL storage. Consider migrating to blob name storage.", id);
+                return Redirect(flyer.ImagePath);
+            }
 
-        var filePath = Path.Combine(ResolveWebRootPath(), flyer.ImagePath.TrimStart('/'));
-        if (!System.IO.File.Exists(filePath))
+            // New case: ImagePath is a blob name - download from Azure Blob Storage
+            try
+            {
+                var stream = await _blobService.DownloadAsync(flyer.ImagePath);
+                var extension = Path.GetExtension(flyer.ImagePath)?.ToLowerInvariant() ?? ".jpg";
+                var mimeType = extension == ".png" ? "image/png" : "image/jpeg";
+                var fileName = $"{flyer.Title.Replace(" ", "_")}{extension}";
+                
+                return File(stream, mimeType, fileName);
+            }
+            catch (Exception blobEx)
+            {
+                _logger.LogError(blobEx, "Failed to download blob '{ImagePath}' for flyer {FlyerId}", flyer.ImagePath, id);
+                
+                // Fallback: Try local file system (for legacy flyers or development)
+                var filePath = Path.Combine(ResolveWebRootPath(), flyer.ImagePath.TrimStart('/'));
+                if (System.IO.File.Exists(filePath))
+                {
+                    var fileBytes = await System.IO.File.ReadAllBytesAsync(filePath);
+                    var fileName = Path.GetFileName(filePath);
+                    var extension = Path.GetExtension(filePath)?.ToLowerInvariant() ?? ".jpg";
+                    var mimeType = extension == ".png" ? "image/png" : "image/jpeg";
+                    return File(fileBytes, mimeType, fileName);
+                }
+                
+                return NotFound(new { message = "File not found in blob storage or local file system" });
+            }
+        }
+        catch (Exception ex)
         {
-            return NotFound(new { message = "File not found" });
+            _logger.LogError(ex, "Error downloading flyer {FlyerId}", id);
+            return StatusCode(500, new { message = "Error downloading file", error = ex.Message });
         }
-
-        var fileBytes = await System.IO.File.ReadAllBytesAsync(filePath);
-        var fileName = Path.GetFileName(filePath);
-        return File(fileBytes, "image/jpeg", fileName);
     }
 
     // Delete flyer (soft delete)
