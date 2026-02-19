@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using backend.Data;
+using backend.Models;
 using backend.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -24,6 +25,20 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 // Register BlobService for Azure Blob Storage uploads
 builder.Services.AddSingleton<BlobService>();
+
+// Review Box: Strongly-typed options
+builder.Services.Configure<OmniWhatsAppOptions>(
+    builder.Configuration.GetSection(OmniWhatsAppOptions.SectionName));
+builder.Services.Configure<ReviewScheduleOptions>(
+    builder.Configuration.GetSection(ReviewScheduleOptions.SectionName));
+
+// Review Box: WhatsApp service with HttpClient
+builder.Services.AddHttpClient<WhatsAppService>();
+builder.Services.AddScoped<IWhatsAppService, WhatsAppService>();
+
+// Review Box: Message template service and background scheduler
+builder.Services.AddScoped<ReviewMessageService>();
+builder.Services.AddHostedService<ReviewSchedulerService>();
 
 // Configure CORS for React frontend (allow any origin for development)
 builder.Services.AddCors(options =>

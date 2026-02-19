@@ -26,6 +26,7 @@ public class CompanyController : ControllerBase
                 c.Id,
                 c.Name,
                 c.ContactEmail,
+                c.GbpReviewLink,
                 c.CreatedAt
             })
             .ToListAsync();
@@ -42,6 +43,7 @@ public class CompanyController : ControllerBase
                 c.Id,
                 c.Name,
                 c.ContactEmail,
+                c.GbpReviewLink,
                 c.CreatedAt
             })
             .FirstOrDefaultAsync(c => c.Id == id);
@@ -71,7 +73,8 @@ public class CompanyController : ControllerBase
         var company = new Company
         {
             Name = dto.Name,
-            ContactEmail = dto.ContactEmail
+            ContactEmail = dto.ContactEmail,
+            GbpReviewLink = dto.GbpReviewLink
         };
 
         _context.Companies.Add(company);
@@ -82,6 +85,7 @@ public class CompanyController : ControllerBase
             id = company.Id,
             name = company.Name,
             contactEmail = company.ContactEmail,
+            gbpReviewLink = company.GbpReviewLink,
             createdAt = company.CreatedAt
         });
     }
@@ -109,6 +113,7 @@ public class CompanyController : ControllerBase
 
         company.Name = dto.Name;
         company.ContactEmail = dto.ContactEmail;
+        company.GbpReviewLink = dto.GbpReviewLink;
 
         await _context.SaveChangesAsync();
 
@@ -117,6 +122,7 @@ public class CompanyController : ControllerBase
             id = company.Id,
             name = company.Name,
             contactEmail = company.ContactEmail,
+            gbpReviewLink = company.GbpReviewLink,
             createdAt = company.CreatedAt
         });
     }

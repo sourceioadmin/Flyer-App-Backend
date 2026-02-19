@@ -13,4 +13,8 @@ public class CompanyDto
     [MaxLength(255)]
     [EmailAddress]
     public string? ContactEmail { get; set; }
+    
+    [MaxLength(500)]
+    [Url]
+    public string? GbpReviewLink { get; set; }
 }

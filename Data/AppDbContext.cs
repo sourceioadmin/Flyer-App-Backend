@@ -12,6 +12,7 @@ public class AppDbContext : DbContext
     public DbSet<User> Users { get; set; }
     public DbSet<Company> Companies { get; set; }
     public DbSet<Flyer> Flyers { get; set; }
+    public DbSet<ReviewCustomer> ReviewCustomers { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -61,6 +62,10 @@ public class AppDbContext : DbContext
             .Property(c => c.ContactEmail)
             .HasMaxLength(255);
 
+        modelBuilder.Entity<Company>()
+            .Property(c => c.GbpReviewLink)
+            .HasMaxLength(500);
+
         // Flyer configuration
         modelBuilder.Entity<Flyer>()
             .HasOne(f => f.Company)
@@ -88,6 +93,29 @@ public class AppDbContext : DbContext
             .Property(f => f.ForDate)
             .HasColumnType("date")
             .IsRequired();
+
+        // ReviewCustomer configuration
+        modelBuilder.Entity<ReviewCustomer>()
+            .HasOne(rc => rc.Company)
+            .WithMany(c => c.ReviewCustomers)
+            .HasForeignKey(rc => rc.CompanyId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ReviewCustomer>()
+            .HasIndex(rc => rc.CompanyId);
+
+        modelBuilder.Entity<ReviewCustomer>()
+            .Property(rc => rc.CustomerName)
+            .HasMaxLength(200)
+            .IsRequired();
+
+        modelBuilder.Entity<ReviewCustomer>()
+            .Property(rc => rc.PhoneNumber)
+            .HasMaxLength(20)
+            .IsRequired();
+
+        modelBuilder.Entity<ReviewCustomer>()
+            .HasQueryFilter(rc => rc.IsActive);
 
         // Global query filters
         modelBuilder.Entity<User>()
