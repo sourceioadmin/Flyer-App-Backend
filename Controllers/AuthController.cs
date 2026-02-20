@@ -18,8 +18,13 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
-    public async Task<IActionResult> Login([FromBody] LoginRequest loginData)
+    public async Task<IActionResult> Login([FromBody] LoginRequest? loginData)
     {
+        if (loginData == null)
+        {
+            return BadRequest(new { message = "Invalid request body" });
+        }
+
         var user = await _context.Users
             .Include(u => u.Company)
             .FirstOrDefaultAsync(u => u.Email == loginData.Email);

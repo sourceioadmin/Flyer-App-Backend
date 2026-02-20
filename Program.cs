@@ -84,12 +84,14 @@ catch (Exception ex)
 }
 
 // Configure the HTTP request pipeline
-    app.UseSwagger();
-    app.UseSwaggerUI();
-
-
-// Enable CORS first
+// Enable CORS first so all responses (including errors) get CORS headers
 app.UseCors("AllowReactApp");
+
+// When an unhandled exception occurs, re-execute pipeline for /error so the 500 response gets CORS headers
+app.UseExceptionHandler("/error");
+
+app.UseSwagger();
+app.UseSwaggerUI();
 
 // Serve static files from wwwroot with CORS headers
 app.UseStaticFiles(new StaticFileOptions
@@ -106,6 +108,10 @@ app.UseStaticFiles(new StaticFileOptions
 // Comment out HTTPS redirection for local network access
 // app.UseHttpsRedirection();
 app.UseAuthorization();
+
+// Error endpoint used by UseExceptionHandler so 500 responses go through CORS
+app.MapGet("/error", () => Results.Json(new { message = "An error occurred processing your request." }, statusCode: 500));
+
 app.MapControllers();
 
 app.Run();
