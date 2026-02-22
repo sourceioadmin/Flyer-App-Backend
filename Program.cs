@@ -6,8 +6,11 @@ using backend.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configure to listen on all network interfaces with HTTPS
-builder.WebHost.UseUrls("https://0.0.0.0:5001");
+// Only set Kestrel URL when not running under IIS (development / standalone)
+if (!builder.Environment.IsProduction())
+{
+    builder.WebHost.UseUrls("https://0.0.0.0:5001");
+}
 
 // Add services to the container
 builder.Services.AddControllers()
@@ -55,11 +58,14 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Seed database
+// Apply migrations in production; in development EnsureCreated can be used for quick setup
 using (var scope = app.Services.CreateScope())
 {
     var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    context.Database.EnsureCreated();
+    if (app.Environment.IsProduction())
+        context.Database.Migrate(); // Use migrations in production
+    else
+        context.Database.EnsureCreated(); // Dev: create DB if not exists
     DbSeeder.Seed(context);
 }
 
