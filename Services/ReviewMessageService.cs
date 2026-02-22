@@ -13,16 +13,20 @@ public class ReviewMessageService
     }
 
     /// <summary>
-    /// Builds Message 1 (immediate) - warm thank-you + review request.
-    /// Button goes to /r/{customerId} which redirects to the company's GbpReviewLink.
+    /// Builds Message 1 (Day 0) - e.g. dreamers_solar_msg_1 with header image and language "mr".
+    /// Returns (templateName, bodyParams, buttonSuffix, headerImageLink, headerImageId, languageCode).
     /// </summary>
-    public (string templateName, List<string> bodyParams, string? buttonSuffix) GetDay0Message(
+    public (string templateName, List<string> bodyParams, string? buttonSuffix, string? headerImageLink, string? headerImageId, string? languageCode) GetDay0Message(
         int customerId, string customerName, string companyName, string gbpReviewLink)
     {
+        // dreamers_solar_msg_1: header image + empty body, no button, language mr
         return (
             _options.Day0TemplateName,
-            new List<string> { customerName, companyName, gbpReviewLink },
-            customerId.ToString()
+            new List<string>(),
+            null,
+            _options.Day0HeaderImageLink,
+            _options.Day0HeaderImageId,
+            _options.Day0TemplateLanguageCode
         );
     }
 

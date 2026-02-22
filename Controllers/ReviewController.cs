@@ -78,11 +78,11 @@ public class ReviewController : ControllerBase
             await Task.Delay(2000);
         }
 
-        var (templateName, bodyParams, buttonSuffix) = _messageService.GetDay0Message(
+        var (templateName, bodyParams, buttonSuffix, headerImageLink, headerImageId, languageCode) = _messageService.GetDay0Message(
             customer.Id, customer.CustomerName, company.Name, company.GbpReviewLink!);
 
         var sent = await _whatsAppService.SendTemplateMessageAsync(
-            customer.PhoneNumber, templateName, bodyParams, buttonSuffix);
+            customer.PhoneNumber, templateName, bodyParams, buttonSuffix, headerImageLink, headerImageId, languageCode);
 
         if (sent)
         {

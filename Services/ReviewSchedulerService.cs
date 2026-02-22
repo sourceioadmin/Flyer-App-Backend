@@ -103,11 +103,11 @@ public class ReviewSchedulerService : BackgroundService
                 await Task.Delay(2000, stoppingToken);
             }
 
-            var (templateName, bodyParams, buttonSuffix) = messageService.GetDay0Message(
+            var (templateName, bodyParams, buttonSuffix, headerImageLink, headerImageId, languageCode) = messageService.GetDay0Message(
                 customer.Id, customer.CustomerName, customer.Company.Name, customer.Company.GbpReviewLink!);
 
             var sent = await whatsAppService.SendTemplateMessageAsync(
-                customer.PhoneNumber, templateName, bodyParams, buttonSuffix);
+                customer.PhoneNumber, templateName, bodyParams, buttonSuffix, headerImageLink, headerImageId, languageCode);
 
             if (sent)
             {

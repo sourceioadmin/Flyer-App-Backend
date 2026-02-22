@@ -69,7 +69,8 @@ public class WhatsAppService : IWhatsAppService
     }
 
     public async Task<bool> SendTemplateMessageAsync(string phoneNumber, string templateName,
-        List<string> bodyParameters, string buttonUrlSuffix)
+        List<string> bodyParameters, string? buttonUrlSuffix,
+        string? headerImageLink = null, string? headerImageId = null, string? languageCode = null)
     {
         if (string.IsNullOrWhiteSpace(_options.ApiKey) || string.IsNullOrWhiteSpace(_options.PhoneNumberId))
         {
@@ -82,21 +83,33 @@ public class WhatsAppService : IWhatsAppService
 
         var components = new List<object>();
 
-        // Body parameters
-        if (bodyParameters.Count > 0)
+        // Header image (for templates like dreamers_solar_msg_1) - must come first
+        if (!string.IsNullOrWhiteSpace(headerImageLink) || !string.IsNullOrWhiteSpace(headerImageId))
         {
-            var bodyParams = bodyParameters.Select(p => new
-            {
-                type = "text",
-                text = p
-            }).ToArray();
-
+            object imagePayload = string.IsNullOrWhiteSpace(headerImageId)
+                ? new { link = headerImageLink!.Trim() }
+                : new { id = headerImageId!.Trim() };
             components.Add(new
             {
-                type = "body",
-                parameters = bodyParams
+                type = "header",
+                parameters = new[]
+                {
+                    new { type = "image", image = imagePayload }
+                }
             });
         }
+
+        // Body parameters (include empty body component when template has body with no params, e.g. dreamers_solar_msg_1)
+        var bodyParams = bodyParameters.Select(p => new
+        {
+            type = "text",
+            text = p
+        }).ToArray();
+        components.Add(new
+        {
+            type = "body",
+            parameters = bodyParams
+        });
 
         // Dynamic URL button parameter
         if (!string.IsNullOrWhiteSpace(buttonUrlSuffix))
@@ -113,6 +126,7 @@ public class WhatsAppService : IWhatsAppService
             });
         }
 
+        var lang = languageCode ?? _options.LanguageCode;
         var payload = new
         {
             messaging_product = "whatsapp",
@@ -122,7 +136,7 @@ public class WhatsAppService : IWhatsAppService
             template = new
             {
                 name = templateName,
-                language = new { code = _options.LanguageCode },
+                language = new { code = lang },
                 components
             }
         };
