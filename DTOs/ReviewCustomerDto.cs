@@ -5,10 +5,6 @@ namespace backend.DTOs;
 public class AddReviewCustomerDto
 {
     [Required]
-    [MaxLength(200)]
-    public string CustomerName { get; set; } = string.Empty;
-
-    [Required]
     [Phone]
     [MaxLength(20)]
     public string PhoneNumber { get; set; } = string.Empty;
@@ -20,7 +16,6 @@ public class AddReviewCustomerDto
 public class ReviewCustomerResponseDto
 {
     public int Id { get; set; }
-    public string CustomerName { get; set; } = string.Empty;
     public string PhoneNumber { get; set; } = string.Empty;
     public int CompanyId { get; set; }
     public DateTime CreatedAt { get; set; }

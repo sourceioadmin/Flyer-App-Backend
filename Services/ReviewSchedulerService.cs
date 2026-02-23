@@ -54,12 +54,11 @@ public class ReviewSchedulerService : BackgroundService
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var whatsAppService = scope.ServiceProvider.GetRequiredService<IWhatsAppService>();
         var messageService = scope.ServiceProvider.GetRequiredService<ReviewMessageService>();
-        var omniOptions = scope.ServiceProvider.GetRequiredService<IOptions<OmniWhatsAppOptions>>().Value;
 
         var now = DateTime.UtcNow;
 
         // Process Day 0 retries (failed to send on creation)
-        await ProcessDay0RetriesAsync(context, whatsAppService, messageService, omniOptions, now, stoppingToken);
+        await ProcessDay0RetriesAsync(context, whatsAppService, messageService, now, stoppingToken);
 
         // Process Day 1 messages
         await ProcessDay1MessagesAsync(context, whatsAppService, messageService, now, stoppingToken);
@@ -69,7 +68,7 @@ public class ReviewSchedulerService : BackgroundService
     }
 
     private async Task ProcessDay0RetriesAsync(AppDbContext context, IWhatsAppService whatsAppService,
-        ReviewMessageService messageService, OmniWhatsAppOptions omniOptions, DateTime now, CancellationToken stoppingToken)
+        ReviewMessageService messageService, DateTime now, CancellationToken stoppingToken)
     {
         var pendingDay0 = await context.ReviewCustomers
             .Include(rc => rc.Company)
@@ -92,19 +91,12 @@ public class ReviewSchedulerService : BackgroundService
 
             if (customer.Company == null || string.IsNullOrWhiteSpace(customer.Company.GbpReviewLink))
             {
-                _logger.LogWarning("Skipping customer {Id} ({Name}): Company or GBP link missing", customer.Id, customer.CustomerName);
+                _logger.LogWarning("Skipping customer {Id} ({Phone}): Company or GBP link missing", customer.Id, customer.PhoneNumber);
                 continue;
             }
 
-            // Optionally send "Hi" first (can trigger 131049; disable by default)
-            if (omniOptions.SendHiBeforeTemplate)
-            {
-                await whatsAppService.SendTextMessageAsync(customer.PhoneNumber, "Hi");
-                await Task.Delay(2000, stoppingToken);
-            }
-
             var (templateName, bodyParams, buttonSuffix, headerImageLink, headerImageId, languageCode) = messageService.GetDay0Message(
-                customer.Id, customer.CustomerName, customer.Company.Name, customer.Company.GbpReviewLink!);
+                customer.Id, customer.Company.Name, customer.Company.GbpReviewLink!);
 
             var sent = await whatsAppService.SendTemplateMessageAsync(
                 customer.PhoneNumber, templateName, bodyParams, buttonSuffix, headerImageLink, headerImageId, languageCode);
@@ -140,7 +132,7 @@ public class ReviewSchedulerService : BackgroundService
             if (stoppingToken.IsCancellationRequested) break;
 
             var (templateName, bodyParams, buttonSuffix) = messageService.GetDay1Message(
-                customer.Id, customer.CustomerName, customer.Company.Name, customer.Company.GbpReviewLink!);
+                customer.Id, customer.Company.Name, customer.Company.GbpReviewLink!);
 
             var sent = await whatsAppService.SendTemplateMessageAsync(
                 customer.PhoneNumber, templateName, bodyParams, buttonSuffix);
@@ -181,7 +173,7 @@ public class ReviewSchedulerService : BackgroundService
             if (stoppingToken.IsCancellationRequested) break;
 
             var (templateName, bodyParams, buttonSuffix) = messageService.GetDay3Message(
-                customer.Id, customer.CustomerName, customer.Company.Name, customer.Company.GbpReviewLink!);
+                customer.Id, customer.Company.Name, customer.Company.GbpReviewLink!);
 
             var sent = await whatsAppService.SendTemplateMessageAsync(
                 customer.PhoneNumber, templateName, bodyParams, buttonSuffix);

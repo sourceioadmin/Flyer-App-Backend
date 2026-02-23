@@ -13,20 +13,20 @@ public class ReviewMessageService
     }
 
     /// <summary>
-    /// Builds Message 1 (Day 0) - e.g. dreamers_solar_msg_1 with header image and language "mr".
+    /// Builds Message 1 (Day 0) - e.g. dreamers_solar_msg_1.
     /// Returns (templateName, bodyParams, buttonSuffix, headerImageLink, headerImageId, languageCode).
     /// </summary>
     public (string templateName, List<string> bodyParams, string? buttonSuffix, string? headerImageLink, string? headerImageId, string? languageCode) GetDay0Message(
-        int customerId, string customerName, string companyName, string gbpReviewLink)
+        int customerId, string companyName, string gbpReviewLink)
     {
         // dreamers_solar_msg_1: header image + empty body, no button, language mr
         return (
             _options.Day0TemplateName,
             new List<string>(),
             null,
-            _options.Day0HeaderImageLink,
-            _options.Day0HeaderImageId,
-            _options.Day0TemplateLanguageCode
+            null,
+            null,
+            null
         );
     }
 
@@ -34,11 +34,11 @@ public class ReviewMessageService
     /// Builds Message 2 (follow-up) - gentle reminder.
     /// </summary>
     public (string templateName, List<string> bodyParams, string? buttonSuffix) GetDay1Message(
-        int customerId, string customerName, string companyName, string gbpReviewLink)
+        int customerId, string companyName, string gbpReviewLink)
     {
         return (
             _options.Day1TemplateName,
-            new List<string> { customerName, companyName, gbpReviewLink },
+            new List<string> { companyName, gbpReviewLink },
             customerId.ToString()
         );
     }
@@ -47,11 +47,11 @@ public class ReviewMessageService
     /// Builds Message 3 (final) - last nudge.
     /// </summary>
     public (string templateName, List<string> bodyParams, string? buttonSuffix) GetDay3Message(
-        int customerId, string customerName, string companyName, string gbpReviewLink)
+        int customerId, string companyName, string gbpReviewLink)
     {
         return (
             _options.Day3TemplateName,
-            new List<string> { customerName, companyName, gbpReviewLink },
+            new List<string> { companyName, gbpReviewLink },
             customerId.ToString()
         );
     }

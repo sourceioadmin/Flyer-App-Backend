@@ -105,11 +105,6 @@ public class AppDbContext : DbContext
             .HasIndex(rc => rc.CompanyId);
 
         modelBuilder.Entity<ReviewCustomer>()
-            .Property(rc => rc.CustomerName)
-            .HasMaxLength(200)
-            .IsRequired();
-
-        modelBuilder.Entity<ReviewCustomer>()
             .Property(rc => rc.PhoneNumber)
             .HasMaxLength(20)
             .IsRequired();

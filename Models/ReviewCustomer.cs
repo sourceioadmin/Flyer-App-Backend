@@ -3,7 +3,6 @@ namespace backend.Models;
 public class ReviewCustomer
 {
     public int Id { get; set; }
-    public string CustomerName { get; set; } = string.Empty;
     public string PhoneNumber { get; set; } = string.Empty;
     public int CompanyId { get; set; }
     public Company Company { get; set; } = null!;
