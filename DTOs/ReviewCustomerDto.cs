@@ -5,12 +5,18 @@ namespace backend.DTOs;
 public class AddReviewCustomerDto
 {
     [Required]
-    [Phone]
-    [MaxLength(20)]
+    [MaxLength(1000)]
     public string PhoneNumber { get; set; } = string.Empty;
 
     [Required]
     public int CompanyId { get; set; }
+}
+
+public class AddReviewCustomersResultDto
+{
+    public List<ReviewCustomerResponseDto> Added { get; set; } = new();
+    public List<string> Invalid { get; set; } = new();
+    public List<string> Duplicates { get; set; } = new();
 }
 
 public class ReviewCustomerResponseDto

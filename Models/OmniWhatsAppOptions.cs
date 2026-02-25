@@ -9,7 +9,7 @@ public class OmniWhatsAppOptions
     public string ApiKey { get; set; } = string.Empty;
     public string LanguageCode { get; set; } = "en";
 
-    public string Day0TemplateName { get; set; } = "dreamers_solar_msg_1";
-    public string Day1TemplateName { get; set; } = "review_reminder_day1";
-    public string Day3TemplateName { get; set; } = "review_reminder_day3";
+    public string Day0TemplateName { get; set; } = "service_feedback_request_1";
+    public string Day1TemplateName { get; set; } = "service_feedback_reminder_2";
+    public string Day3TemplateName { get; set; } = "service_feedback_final_reminder_3";
 }

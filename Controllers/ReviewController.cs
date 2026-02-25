@@ -27,7 +27,7 @@ public class ReviewController : ControllerBase
     }
 
     /// <summary>
-    /// Add a new customer and send the first review request message (Day 0).
+    /// Add one or more customers (comma-separated phone numbers) and send the first review request message (Day 0) to each.
     /// </summary>
     [HttpPost("customer")]
     public async Task<IActionResult> AddCustomer([FromBody] AddReviewCustomerDto dto)
@@ -37,10 +37,15 @@ public class ReviewController : ControllerBase
             return BadRequest(ModelState);
         }
 
-        var normalizedPhone = NormalizeIndianPhoneNumber(dto.PhoneNumber);
-        if (normalizedPhone == null)
+        var rawNumbers = dto.PhoneNumber
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.Trim())
+            .Where(s => s.Length > 0)
+            .ToList();
+
+        if (rawNumbers.Count == 0)
         {
-            return BadRequest(new { message = "Invalid phone number. Provide a 10-digit Indian mobile number (country code 91 will be added automatically)." });
+            return BadRequest(new { message = "At least one phone number is required. Provide a single number or comma-separated values (e.g. 9876543210, 9876543211)." });
         }
 
         var company = await _context.Companies.FindAsync(dto.CompanyId);
@@ -54,45 +59,59 @@ public class ReviewController : ControllerBase
             return BadRequest(new { message = "Company does not have a GBP review link configured. Please update the company's GBP review link first." });
         }
 
-        // Ensure the same phone number is not added twice for this company (one review flow per customer per company)
-        var alreadyExists = await _context.ReviewCustomers
-            .IgnoreQueryFilters()
-            .AnyAsync(rc => rc.CompanyId == dto.CompanyId && rc.PhoneNumber == normalizedPhone);
-        if (alreadyExists)
+        var result = new AddReviewCustomersResultDto();
+
+        foreach (var raw in rawNumbers)
         {
-            return Conflict(new { message = "A review customer with this phone number already exists for this company. Each customer should be added only once per company." });
-        }
+            var normalizedPhone = NormalizeIndianPhoneNumber(raw);
+            if (normalizedPhone == null)
+            {
+                result.Invalid.Add(raw);
+                continue;
+            }
 
-        var customer = new ReviewCustomer
-        {
-            PhoneNumber = normalizedPhone,
-            CompanyId = dto.CompanyId,
-            IsActive = true
-        };
+            var alreadyExists = await _context.ReviewCustomers
+                .IgnoreQueryFilters()
+                .AnyAsync(rc => rc.CompanyId == dto.CompanyId && rc.PhoneNumber == normalizedPhone);
+            if (alreadyExists)
+            {
+                result.Duplicates.Add(raw);
+                continue;
+            }
 
-        _context.ReviewCustomers.Add(customer);
-        await _context.SaveChangesAsync();
+            var customer = new ReviewCustomer
+            {
+                PhoneNumber = normalizedPhone,
+                CompanyId = dto.CompanyId,
+                IsActive = true
+            };
 
-        var (templateName, bodyParams, buttonSuffix, headerImageLink, headerImageId, languageCode) = _messageService.GetDay0Message(
-            customer.Id, company.Name, company.GbpReviewLink!);
-
-        var sent = await _whatsAppService.SendTemplateMessageAsync(
-            customer.PhoneNumber, templateName, bodyParams, buttonSuffix, headerImageLink, headerImageId, languageCode);
-
-        if (sent)
-        {
-            customer.Day0Sent = true;
+            _context.ReviewCustomers.Add(customer);
             await _context.SaveChangesAsync();
-            _logger.LogInformation("Day 0 message sent to customer {CustomerId} ({Phone})",
-                customer.Id, customer.PhoneNumber);
-        }
-        else
-        {
-            _logger.LogWarning("Failed to send Day 0 message to customer {CustomerId} ({Phone}). Will retry on next scheduler run.",
-                customer.Id, customer.PhoneNumber);
+
+            var (templateName, bodyParams, buttonSuffix, headerImageLink, headerImageId, languageCode) = _messageService.GetDay0Message(
+                customer.Id, company.Name, company.GbpReviewLink!);
+
+            var sent = await _whatsAppService.SendTemplateMessageAsync(
+                customer.PhoneNumber, templateName, bodyParams, buttonSuffix, headerImageLink, headerImageId, languageCode);
+
+            if (sent)
+            {
+                customer.Day0Sent = true;
+                await _context.SaveChangesAsync();
+                _logger.LogInformation("Day 0 message sent to customer {CustomerId} ({Phone})",
+                    customer.Id, customer.PhoneNumber);
+            }
+            else
+            {
+                _logger.LogWarning("Failed to send Day 0 message to customer {CustomerId} ({Phone}). Will retry on next scheduler run.",
+                    customer.Id, customer.PhoneNumber);
+            }
+
+            result.Added.Add(MapToResponse(customer));
         }
 
-        return Ok(MapToResponse(customer));
+        return StatusCode(201, result);
     }
 
     /// <summary>

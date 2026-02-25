@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash('/mnt/c/Program Files/dotnet/dotnet.exe' build:*)",
+      "Bash('/mnt/c/Program Files/dotnet/dotnet.exe' run:*)"
+    ]
+  }
+}

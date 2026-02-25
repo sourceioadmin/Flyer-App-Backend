@@ -19,14 +19,13 @@ public class ReviewMessageService
     public (string templateName, List<string> bodyParams, string? buttonSuffix, string? headerImageLink, string? headerImageId, string? languageCode) GetDay0Message(
         int customerId, string companyName, string gbpReviewLink)
     {
-        // dreamers_solar_msg_1: header image + empty body, no button, language mr
         return (
             _options.Day0TemplateName,
-            new List<string>(),
-            null,
-            null,
-            null,
-            null
+            new List<string> { companyName, gbpReviewLink },
+            null,   // no button
+            null,   // no header image link
+            null,   // no header image id
+            null    // use default language ("en")
         );
     }
 
@@ -39,7 +38,7 @@ public class ReviewMessageService
         return (
             _options.Day1TemplateName,
             new List<string> { companyName, gbpReviewLink },
-            customerId.ToString()
+            null    // no button
         );
     }
 
@@ -52,7 +51,7 @@ public class ReviewMessageService
         return (
             _options.Day3TemplateName,
             new List<string> { companyName, gbpReviewLink },
-            customerId.ToString()
+            null    // no button
         );
     }
 }
